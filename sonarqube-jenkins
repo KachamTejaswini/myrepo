@@ -1,55 +1,54 @@
 pipeline {
-agent any
+    agent any
 
-stages {
-stage('chckout scm') {
-steps {
-checkout scmGit(branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/hellokaton/java11-examples.git']])
-}
-}
-stage('Compiling and Running Test Cases') {
-steps {
-sh 'mvn clean'
-sh 'mvn compile'
-sh 'mvn test'
-}
-}
-stage('Generating a Cucumber Reports') {
-steps {
-script {
-// Run Cucumber tests and generate reports
-sh 'mvn verify'
-}
-}
-}
-stage('Creating Package') {
-steps {
-sh 'mvn package'
-}
-}
-stage('adding genrerate report'){
-steps {
-sh 'mvn verify'
-}
-}
-stage('Install sonarqube cli') {
-steps {
-// Step to install SonarQube CLI
-sh 'sudo wget -O sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip'
-sh 'sudo unzip -o -q sonar-scanner.zip'
-sh 'sudo rm -rf /opt/sonar-scanner'
-sh 'sudo mv --force sonar-scanner-5.0.1.3006-linux /opt/sonar-scanner'
-sh 'sudo sh -c \'echo "#/bin/bash \nexport PATH=\\\"$PATH:/opt/sonar-scanner/bin\\\"" >/etc/profile.d/sonar-scanner.sh\''
-sh 'sudo chmod +x /opt/sonar-scanner/bin/sonar-scanner'
-sh '. /etc/profile.d/sonar-scanner.sh'
-}
-}
+    environment {
+        SONAR_SCANNER = "/opt/sonar-scanner/bin/sonar-scanner"
+        SONAR_HOST_URL = "https://sonarcloud.io"
+        SONAR_PROJECT_KEY = "tejaswinikacham_project1"
+        SONAR_ORG = "tejaswinikacham"
+    }
 
-stage('Analyzing Code Quality') {
-steps {
-// Step to analyze code quality with SonarQube
-sh '/opt/sonar-scanner/bin/sonar-scanner -Dsonar.projectKey=tejaswinikacham_project1 -Dsonar.organization=tejaswinikacham -Dsonar.qualitygate.wait=false -Dsonar.qualitygate.timeout=300 -Dsonar.sources=src/main/java/ -Dsonar.java.binaries=target/classes -Dsonar.host.url=https://sonarcloud.io -Dsonar.login=065841dbbfb086b111d7ebbf1844c617f7e4ac24'
-}
-}
-}
+    stages {
+
+        stage('Checkout Source Code') {
+            steps {
+                git branch: 'master',
+                    url: 'https://github.com/hellokaton/java11-examples.git'
+            }
+        }
+
+        stage('Build, Test & Verify') {
+            steps {
+                sh '''
+                  mvn clean verify
+                '''
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                    sh """
+                      ${SONAR_SCANNER} \
+                      -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                      -Dsonar.organization=${SONAR_ORG} \
+                      -Dsonar.sources=src/main/java \
+                      -Dsonar.java.binaries=target/classes \
+                      -Dsonar.host.url=${SONAR_HOST_URL} \
+                      -Dsonar.login=${SONAR_TOKEN} \
+                      -Dsonar.qualitygate.wait=false
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✅ Build and SonarQube analysis completed successfully'
+        }
+        failure {
+            echo '❌ Pipeline failed. Check logs.'
+        }
+    }
 }
