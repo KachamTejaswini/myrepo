@@ -1,54 +1,58 @@
 pipeline {
     agent any
 
-    environment {
-        SONAR_SCANNER = "/opt/sonar-scanner/bin/sonar-scanner"
-        SONAR_HOST_URL = "https://sonarcloud.io"
-        SONAR_PROJECT_KEY = "tejaswinikacham_project1"
-        SONAR_ORG = "tejaswinikacham"
-    }
-
     stages {
-
-        stage('Checkout Source Code') {
+        stage('Checkout SCM') {
             steps {
-                git branch: 'master',
-                    url: 'https://github.com/hellokaton/java11-examples.git'
+                checkout scmGit(
+                    branches: [[name: '*/master']], 
+                    extensions: [], 
+                    userRemoteConfigs: [[url: 'https://github.com/hellokaton/java11-examples.git']]
+                )
             }
         }
 
-        stage('Build, Test & Verify') {
+        stage('Build & Test') {
+            steps {
+                sh 'mvn clean verify'
+            }
+        }
+
+        stage('Install & Fix Sonar CLI') {
             steps {
                 sh '''
-                  mvn clean verify
+                # 1. Install scanner if not present
+                if [ ! -d "/opt/sonar-scanner" ]; then
+                    wget -O sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip
+                    sudo unzip -o -q sonar-scanner.zip
+                    sudo mv --force sonar-scanner-5.0.1.3006-linux /opt/sonar-scanner
+                    rm sonar-scanner.zip
+                fi
+                
+                # 2. Remove the broken bundled JRE
+                sudo rm -rf /opt/sonar-scanner/jre
+                
+                # 3. FIX: Link the system Java into the scanner folder
+                # This makes the scanner 'think' it has a local JRE
+                sudo mkdir -p /opt/sonar-scanner/jre/bin
+                sudo ln -sf $(which java) /opt/sonar-scanner/jre/bin/java
                 '''
             }
         }
 
-        stage('SonarQube Analysis') {
+        stage('Analyzing Code Quality') {
             steps {
-                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                    sh """
-                      ${SONAR_SCANNER} \
-                      -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-                      -Dsonar.organization=${SONAR_ORG} \
-                      -Dsonar.sources=src/main/java \
-                      -Dsonar.java.binaries=target/classes \
-                      -Dsonar.host.url=${SONAR_HOST_URL} \
-                      -Dsonar.login=${SONAR_TOKEN} \
-                      -Dsonar.qualitygate.wait=false
-                    """
-                }
+                sh '''
+                # Use the absolute path to the scanner
+                /opt/sonar-scanner/bin/sonar-scanner \
+                -Dsonar.projectKey=tejaswinikacham_project1 \
+                -Dsonar.organization=tejaswinikacham \
+                -Dsonar.sources=src/main/java/ \
+                -Dsonar.java.binaries=target/classes \
+                -Dsonar.host.url=https://sonarcloud.io \
+                -Dsonar.login=065841dbbfb086b111d7ebbf1844c617f7e4ac24
+                '''
             }
-        }
-    }
-
-    post {
-        success {
-            echo '✅ Build and SonarQube analysis completed successfully'
-        }
-        failure {
-            echo '❌ Pipeline failed. Check logs.'
         }
     }
 }
